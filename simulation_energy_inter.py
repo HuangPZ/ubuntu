@@ -20,9 +20,16 @@ def establish_socket(role, target_ip="127.0.0.1", port=5000):
     """
     if role == "sender":
         sender_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sender_socket.connect((target_ip, port))
-        print("Sender connected to receiver.")
-        return sender_socket
+        retry_delay = 0.2
+        while 1:
+            try:
+                sender_socket.connect((target_ip, port))
+                print("Sender connected to receiver.")
+                return sender_socket
+            except (socket.timeout, ConnectionRefusedError) as e:
+                time.sleep(retry_delay)
+        # print("Sender connected to receiver.")
+        # return sender_socket
 
     elif role == "receiver":
         receiver_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -49,7 +56,7 @@ def simulate_communication(phase_name, duration, bandwidth, package_size, socket
     """
     print(f"{phase_name} started as {role}.")
     if bandwidth < 100000:
-        time.sleep(10)
+        time.sleep(duration)
         return 0
 
     os.system(f"sudo tc qdisc add dev enp4s0 root netem rate {bandwidth * 8}bit")
@@ -99,6 +106,21 @@ def run_experiment(name, duration, bandwidth, package_size, role, socket_obj):
         role (str): Role in communication ('sender' or 'receiver').
         socket_obj (socket): Established socket object.
     """
+    # # os.sleep(1)
+    # if role == "sender":
+    #     # Sender sends "READY"
+    #     socket_obj.sendall(b"READY")
+    #     # Expect "OK" from receiver
+    #     resp = socket_obj.recv(2)
+    #     if resp != b"OK":
+    #         print("Synchronization error: Did not receive OK from receiver.")
+    # else:
+    #     # Receiver waits for "READY"
+    #     data = socket_obj.recv(5)
+    #     if data != b"READY":
+    #         print("Synchronization error: Did not receive READY from sender.")
+    #     # Respond with "OK"
+    #     socket_obj.sendall(b"OK")
     print(f"\nStarting experiment: {name}, Package Size: {package_size} bytes")
 
     meter = pyRAPL.Measurement('transmission_power')
@@ -127,7 +149,7 @@ def run_experiment(name, duration, bandwidth, package_size, role, socket_obj):
 def main():
     # Experiment configurations
     experiments = [
-        {"name": "Experiment 0", "bandwidth": 0},
+        # {"name": "Experiment 0", "bandwidth": 0},
         {"name": "Experiment 1", "bandwidth": 100 * 1024**2},  # 100MB/s
         {"name": "Experiment 2", "bandwidth": 300 * 1024**2},  # 300MB/s
         {"name": "Experiment 3", "bandwidth": 600 * 1024**2},  # 600MB/s
@@ -139,13 +161,15 @@ def main():
     port = 100
 
     role = "receiver"
-    socket_obj = establish_socket(role, target_ip, port)
+    
     results = []
     
     for exp in experiments:
         for package_size in package_sizes:
+            socket_obj = establish_socket(role, target_ip, port)
             result = run_experiment(exp["name"], duration, exp["bandwidth"], package_size, role, socket_obj)
             results.append((exp["name"], exp["bandwidth"], package_size, *result))
+            socket_obj.close()
 
     # Organize results
     energy_per_mb_data = {bandwidth: [] for bandwidth in [exp["bandwidth"] for exp in experiments]}
@@ -174,8 +198,8 @@ def main():
 
     # Plot energy/MB vs bit rate
     plt.figure(figsize=(8, 6))
-    for package_size in package_sizes:
-        plt.plot([exp["bandwidth"] / 1024**2 for exp in experiments], [energy_per_mb_data[bw][i] for i, bw in enumerate([exp["bandwidth"] for exp in experiments])], marker='o', linestyle='-', linewidth=2, markersize=8, label=f"Package Size: {package_size / 1024**2} MB")
+    for i,package_size in enumerate(package_sizes):
+        plt.plot([exp["bandwidth"] / 1024**2 for exp in experiments], [energy_per_mb_data[bw][i] for bw in [exp["bandwidth"] for exp in experiments]], marker='o', linestyle='-', linewidth=2, markersize=8, label=f"Package Size: {package_size / 1024**2} MB")
     plt.title("Energy/MB vs Bit Rate", fontsize=16)
     plt.xlabel("Bit Rate (MB/s)", fontsize=14)
     plt.ylabel("Energy (J/MB)", fontsize=14)
@@ -214,7 +238,7 @@ def main():
     plt.yticks(fontsize=12)
     plt.tight_layout()
     plt.savefig("actual_vs_Max_bit_rate_{}.png".format(role))
-    socket_obj.close()
+    
 
 if __name__ == "__main__":
     main()
