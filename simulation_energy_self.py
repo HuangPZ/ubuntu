@@ -160,8 +160,8 @@ def main():
     ]
 
     package_sizes = [1024, 1024**2, 10 * 1024**2, 100 * 1024**2]  # 1KB, 1MB, 10MB, 100MB
-    duration = 5  # Duration for each experiment in seconds
-    target_ip = "172.31.43.45"  # Replace with actual IP of the other machine
+    duration = 10  # Duration for each experiment in seconds
+    target_ip = "172.31.44.82"  # Replace with actual IP of the other machine
     port = 100
 
     role = args.role
@@ -209,7 +209,7 @@ def main():
         # print([energy_per_mb_data[bw][i] for i, bw in enumerate([exp["bandwidth"] for exp in experiments])])
         plt.plot([exp["bandwidth"] / 1024**2 for exp in experiments], [energy_per_mb_data[bw][i] for bw in [exp["bandwidth"] for exp in experiments]], marker='o', linestyle='-', linewidth=2, markersize=8, label=f"Package Size: {package_size / 1024**2} MB")
     plt.title("Energy/MB vs Bit Rate", fontsize=16)
-    plt.xlabel("Bit Rate (MB/s)", fontsize=14)
+    plt.xlabel("Max Bit Rate (MB/s)", fontsize=14)
     plt.ylabel("Energy (J/MB)", fontsize=14)
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.legend(fontsize=12)
