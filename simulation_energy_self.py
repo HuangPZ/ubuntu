@@ -46,50 +46,49 @@ def establish_socket(role, target_ip="127.0.0.1", port=5000):
     else:
         raise ValueError("Invalid role specified. Use 'sender' or 'receiver'.")
 
-def simulate_communication(phase_name, duration, bandwidth, vector_size, socket_obj, role, data_chunk):
+def simulate_communication(phase_name, duration, bandwidth, packet_size, socket_obj, role, data_chunk):
     """
     Simulate communication workload (upload/download) using an established socket.
     Args:
         phase_name (str): Name of the phase (e.g., "Upload 100MB/s").
         duration (int): Duration of the experiment in seconds.
         bandwidth (int): Bandwidth in bytes per second.
-        vector_size (int): vector size in bytes.
+        packet_size (int): application buffer size in bytes.
         socket_obj (socket): Established socket object.
         role (str): Role in communication ('sender' or 'receiver').
     """
-    print(f"{phase_name} started as {role}.")
-    if bandwidth < 100000:
-        time.sleep(duration)
-        return 0
     if bandwidth<=300 * 1024**2:
         total = 1000 * 1024**2
     else:
         total = 10000 * 1024**2
+    print(f"{phase_name} started as {role}.")
+    if bandwidth < 100000:
+        time.sleep(duration)
+        return 0
+    
     os.system(f"sudo tc qdisc add dev lo root netem rate {bandwidth * 8}bit")
-
+    # print("packetsize:",packet_size)
+    # os.system(f"sudo ip link set dev enp4s0 mtu {packet_size}")
     if role == "sender":
         data_transmitted = 0
         
         # start_time = time.time()
-        print(total/vector_size)
-        for i in range(0, int(total/vector_size)):
-            # print(i)
+        while data_transmitted < total:
             try:
                 socket_obj.sendall(data_chunk)
-                # data_transmitted += vector_size
+                data_transmitted += packet_size
             except ConnectionResetError:
                 print("Connection reset by receiver. Ending transmission.")
-                break
 
         print(f"{phase_name} completed. Data transmitted: {data_transmitted / 1e6:.2f} MB")
 
     elif role == "receiver":
         data_received = 0
         # start_time = time.time()
-        print(total/vector_size)
+        # print(total/packet_size)
         while data_received < total:
             try:
-                data = socket_obj.recv(65483)
+                data = socket_obj.recv(packet_size)
                 data_received += len(data)
                 # print(len(data))
             except ConnectionResetError:
@@ -100,19 +99,21 @@ def simulate_communication(phase_name, duration, bandwidth, vector_size, socket_
         # data_transmitted = data_received
 
     os.system(f"sudo tc qdisc del dev lo root netem rate {bandwidth * 8}bit")
+    # os.system(f"sudo ip link set dev enp4s0 mtu 9001")
     return total
 
-def run_experiment(name, duration, bandwidth, vector_size, role, socket_obj, data_chunk):
+def run_experiment(name, duration, bandwidth, packet_size, role, socket_obj, data_chunk):
     """
     Run a single communication experiment.
     Args:
         name (str): Name of the experiment.
         duration (int): Duration of the experiment.
         bandwidth (int): Bandwidth in bytes per second.
-        vector_size (int): vector size in bytes.
+        packet_size (int): application buffer size in bytes.
         role (str): Role in communication ('sender' or 'receiver').
         socket_obj (socket): Established socket object.
     """
+    
     # time.sleep(1)
     if role == "sender":
         # # Sender sends "READY"
@@ -128,13 +129,13 @@ def run_experiment(name, duration, bandwidth, vector_size, role, socket_obj, dat
         #     print("Synchronization error: Did not receive READY from sender.")
         # Respond with "OK"
         socket_obj.sendall(b"OK")
-    print(f"\nStarting experiment: {name}, vector Size: {vector_size} bytes")
+    print(f"\nStarting experiment: {name}, application buffer size: {packet_size} bytes")
 
     meter = pyRAPL.Measurement('transmission_power')
     meter.begin()
     start_time = time.time()
 
-    data_transmitted = simulate_communication(name, duration, bandwidth, vector_size, socket_obj, role, data_chunk)
+    data_transmitted = simulate_communication(name, duration, bandwidth, packet_size, socket_obj, role, data_chunk)
 
     meter.end()
     end_time = time.time()
@@ -166,7 +167,7 @@ def main():
         {"name": "Experiment 4", "bandwidth": 3000 * 1024**2},  # 600MB/s
     ]
 
-    vector_sizes = [1024, 1024**2, 10 * 1024**2, 100 * 1024**2]  #   1KB, 1MB, 10MB, 100MB
+    packet_sizes = [4092, 16371, 65483 , 261936, 1024**2, 4*1024**2]  #   1KB, 1MB, 10MB, 100MB
     duration = 5  # Duration for each experiment in seconds
     target_ip = "172.31.44.82"  # Replace with actual IP of the other machine
     port = 100
@@ -176,51 +177,55 @@ def main():
     results = []
     
     for exp in experiments:
-        for vector_size in vector_sizes:
-            data_chunk = os.urandom(vector_size)  # Generate random data
+        for packet_size in packet_sizes:
+            if exp["bandwidth"]<=300 * 1024**2:
+                total = 1000 * 1024**2
+            else:
+                total = 10000 * 1024**2
+            data_chunk = os.urandom(packet_size)  # Generate random data
             socket_obj = establish_socket(role, target_ip, port)
-            # socket_obj.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, int(vector_size*1.1))
-            result = run_experiment(exp["name"], duration, exp["bandwidth"], vector_size, role, socket_obj, data_chunk)
-            results.append((exp["name"], exp["bandwidth"], vector_size, *result))
+            # socket_obj.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, int(packet_size*1.1))
+            result = run_experiment(exp["name"], duration, exp["bandwidth"], packet_size, role, socket_obj, data_chunk)
+            results.append((exp["name"], exp["bandwidth"], packet_size, *result))
             socket_obj.close()
 
         # Organize results
     energy_per_mb_data = {bandwidth: [] for bandwidth in [exp["bandwidth"] for exp in experiments]}
-    power_data = {vector_size: [] for vector_size in vector_sizes}
-    data_speed_data = {vector_size: [] for vector_size in vector_sizes}
+    power_data = {packet_size: [] for packet_size in packet_sizes}
+    data_speed_data = {packet_size: [] for packet_size in packet_sizes}
 
     for res in results:
-        _, bandwidth, vector_size, _, avg_power, speed, e_per_mb = res
+        _, bandwidth, packet_size, _, avg_power, speed, e_per_mb = res
         energy_per_mb_data[bandwidth].append(e_per_mb)
-        power_data[vector_size].append(avg_power)
-        data_speed_data[vector_size].append(speed)
+        power_data[packet_size].append(avg_power)
+        data_speed_data[packet_size].append(speed)
         if bandwidth == 0:
             average_idle_power = avg_power
     
-    # Plot energy/MB vs vector size
+    # Plot energy/MB vs application buffer size
     plt.figure(figsize=(8, 6))
     for bandwidth, values in energy_per_mb_data.items():
         if bandwidth==0:
             continue
-        plt.plot([ps / 1024**2 for ps in vector_sizes], values, marker='o', linestyle='-', linewidth=2, markersize=8, label=f"Bit Rate: {bandwidth / 1024**2} MB/s")
-    plt.title("Active Energy/MB vs vector Size", fontsize=16)
-    plt.xlabel("vector Size (MB)", fontsize=14)
+        plt.plot([ps / 1024 for ps in packet_sizes], values, marker='o', linestyle='-', linewidth=2, markersize=8, label=f"Bit Rate: {bandwidth / 1024**2} MB/s")
+    plt.title("Active Energy/MB vs application buffer size", fontsize=16)
+    plt.xlabel("application buffer size (KB)", fontsize=14)
     plt.ylabel("Active Energy (J/MB)", fontsize=14)
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.legend(fontsize=12)
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)
     plt.tight_layout()
-    plt.savefig("energy_per_mb_vs_vector_size_{}.png".format(role))
+    plt.savefig("energy_per_mb_vs_packet_size_{}.png".format(role))
 
     # Plot energy/MB vs bit rate
     plt.figure(figsize=(8, 6))
-    for i,vector_size in enumerate(vector_sizes):
+    for i,packet_size in enumerate(packet_sizes):
         # print([exp["bandwidth"] / 1024**2 for exp in experiments])
         # print(energy_per_mb_data,[exp["bandwidth"] for exp in experiments])
         # print(i)
         # print([energy_per_mb_data[bw][i] for i, bw in enumerate([exp["bandwidth"] for exp in experiments])])
-        plt.plot([exp["bandwidth"] / 1024**2 for exp in experiments[1:]], [energy_per_mb_data[bw][i] for bw in [exp["bandwidth"] for exp in experiments[1:]]], marker='o', linestyle='-', linewidth=2, markersize=8, label=f"vector Size: {vector_size / 1024**2} MB")
+        plt.plot([exp["bandwidth"] / 1024**2 for exp in experiments[1:]], [energy_per_mb_data[bw][i] for bw in [exp["bandwidth"] for exp in experiments[1:]]], marker='o', linestyle='-', linewidth=2, markersize=8, label=f"application buffer size: {packet_size / 1024**2} MB")
     plt.title("Active Energy/MB vs Bit Rate", fontsize=16)
     plt.xlabel("Max Bit Rate (MB/s)", fontsize=14)
     plt.ylabel("Active Energy (J/MB)", fontsize=14)
@@ -233,8 +238,8 @@ def main():
 
     # Plot power vs Max Bit Rate
     plt.figure(figsize=(8, 6))
-    for vector_size, values in power_data.items():
-        plt.plot(data_speed_data[vector_size], values, marker='o', linestyle='-', linewidth=2, markersize=8, label=f"vector Size: {vector_size / 1024**2} MB")
+    for packet_size, values in power_data.items():
+        plt.plot(data_speed_data[packet_size], values, marker='o', linestyle='-', linewidth=2, markersize=8, label=f"application buffer size: {packet_size / 1024**2} MB")
     plt.title("Active Power Consumption vs Max Bit Rate", fontsize=16)
     plt.xlabel("Max Bit Rate (MB/s)", fontsize=14)
     plt.ylabel("Active Power (Watts)", fontsize=14)
@@ -247,9 +252,9 @@ def main():
 
     
     plt.figure(figsize=(8, 6))
-    for vector_size in vector_sizes:
-        actual_speeds = [data_speed_data[vector_size][i] for i, bw in enumerate([exp["bandwidth"] for exp in experiments])]
-        plt.plot([exp["bandwidth"] / 1024**2 for exp in experiments], actual_speeds, marker='o', linestyle='-', linewidth=2, markersize=8, label=f"vector Size: {vector_size / 1024**2} MB")
+    for packet_size in packet_sizes:
+        actual_speeds = [data_speed_data[packet_size][i] for i, bw in enumerate([exp["bandwidth"] for exp in experiments])]
+        plt.plot([exp["bandwidth"] / 1024**2 for exp in experiments], actual_speeds, marker='o', linestyle='-', linewidth=2, markersize=8, label=f"application buffer size: {packet_size / 1024**2} MB")
     plt.title("Actual Transmitted Bit Rate vs Max Bit Rateped Bit Rate", fontsize=16)
     plt.xlabel("Max Bit Rate (MB/s)", fontsize=14)
     plt.ylabel("Actual Transmitted Bit Rate (MB/s)", fontsize=14)
