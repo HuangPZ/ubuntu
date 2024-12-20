@@ -239,7 +239,7 @@ def main():
     # Plot power vs Max Bit Rate
     plt.figure(figsize=(8, 6))
     for packet_size, values in power_data.items():
-        plt.plot(data_speed_data[packet_size], values, marker='o', linestyle='-', linewidth=2, markersize=8, label=f"application buffer size: {packet_size / 1024**2} MB")
+        plt.plot(data_speed_data[packet_size], values, marker='o', linestyle='-', linewidth=2, markersize=8, label=f"application buffer size: {packet_size / 1024} KB")
     plt.title("Active Power Consumption vs Max Bit Rate", fontsize=16)
     plt.xlabel("Max Bit Rate (MB/s)", fontsize=14)
     plt.ylabel("Active Power (Watts)", fontsize=14)
@@ -254,7 +254,7 @@ def main():
     plt.figure(figsize=(8, 6))
     for packet_size in packet_sizes:
         actual_speeds = [data_speed_data[packet_size][i] for i, bw in enumerate([exp["bandwidth"] for exp in experiments])]
-        plt.plot([exp["bandwidth"] / 1024**2 for exp in experiments], actual_speeds, marker='o', linestyle='-', linewidth=2, markersize=8, label=f"application buffer size: {packet_size / 1024**2} MB")
+        plt.plot([exp["bandwidth"] / 1024**2 for exp in experiments], actual_speeds, marker='o', linestyle='-', linewidth=2, markersize=8, label=f"application buffer size: {packet_size / 1024} KB")
     plt.title("Actual Transmitted Bit Rate vs Max Bit Rateped Bit Rate", fontsize=16)
     plt.xlabel("Max Bit Rate (MB/s)", fontsize=14)
     plt.ylabel("Actual Transmitted Bit Rate (MB/s)", fontsize=14)
