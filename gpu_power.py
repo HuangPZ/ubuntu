@@ -13,54 +13,76 @@ import matplotlib.pyplot as plt
 
 
 
-def power_monitor(handle, stop_event, data_queue, interval=0.05):
-    """
-    Continuously sample the instantaneous power draw (mW) from NVML
-    and store (timestamp, power_mW) in a queue until stop_event is set.
-    """
-    while not stop_event.is_set():
-        power_mW = pynvml.nvmlDeviceGetPowerUsage(handle)  # instantaneous power (mW)
-        timestamp = time.time()
-        data_queue.put((timestamp, power_mW))
-        # time.sleep(interval)
-# def power_monitor(device_id, stop_event, data_queue, interval=0.05):
+# def power_monitor(handle, stop_event, data_queue, interval=0.05):
 #     """
-#     Continuously sample the instantaneous power draw (mW) using `nvidia-smi`
+#     Continuously sample the instantaneous power draw (mW) from NVML
 #     and store (timestamp, power_mW) in a queue until stop_event is set.
-
-#     Parameters:
-#         device_id (int): The GPU ID to monitor.
-#         stop_event (threading.Event): Event to signal stopping the monitor.
-#         data_queue (queue.Queue): Queue to store (timestamp, power_mW) samples.
-#         interval (float): Sampling interval in seconds (default: 0.05s).
 #     """
-#     device_id = 0
 #     while not stop_event.is_set():
-#         try:
-#             # Run `nvidia-smi` command to get power draw for the specific GPU
-#             result = subprocess.run(
-#                 ["nvidia-smi", "-i", str(device_id), "--query-gpu=power.draw", "--format=csv,noheader,nounits"],
-#                 stdout=subprocess.PIPE,
-#                 stderr=subprocess.PIPE,
-#                 text=True
-#             )
-
-#             # Parse the output (power in watts)
-#             power_w = float(result.stdout.strip())
-#             power_mw = power_w #* 1000  # Convert watts to milliwatts
-
-#             # Get the current timestamp
-#             timestamp = time.time()
-
-#             # Add the sample to the data queue
-#             data_queue.put((timestamp, power_mw))
-
-#         except Exception as e:
-#             print(f"Error during power monitoring: {e}")
-#             break
-
-#         # Wait for the next interval
+#         power_mW = pynvml.nvmlDeviceGetPowerUsage(handle)  # instantaneous power (mW)
+#         timestamp = time.time()
+#         data_queue.put((timestamp, power_mW))
 #         # time.sleep(interval)
+def power_monitor(device_id, stop_event, data_queue, interval=0.05):
+    # """
+    # Continuously sample the instantaneous power draw (mW) using `nvidia-smi`
+    # and store (timestamp, power_mW) in a queue until stop_event is set.
+
+    # Parameters:
+    #     device_id (int): The GPU ID to monitor.
+    #     stop_event (threading.Event): Event to signal stopping the monitor.
+    #     data_queue (queue.Queue): Queue to store (timestamp, power_mW) samples.
+    #     interval (float): Sampling interval in seconds (default: 0.05s).
+    # """
+    # device_id = 0
+    # while not stop_event.is_set():
+    #     try:
+    #         # Run `nvidia-smi` command to get power draw for the specific GPU
+    #         result = subprocess.run(
+    #             ["nvidia-smi","--query-gpu=power.draw","--format=csv,noheader,nounits"],#csv","--loop-ms=80"],
+    #             stdout=subprocess.PIPE,
+    #             stderr=subprocess.PIPE,
+    #             text=True
+    #         )
+
+    #         # Parse the output (power in watts)
+    #         power_w = float(result.stdout.strip())
+    #         power_mw = power_w #* 1000  # Convert watts to milliwatts
+
+    #         # Get the current timestamp
+    #         timestamp = time.time()
+
+    #         # Add the sample to the data queue
+    #         data_queue.put((timestamp, power_mw))
+
+    #     except Exception as e:
+    #         print(f"Error during power monitoring: {e}")
+    #         break
+
+    #     # Wait for the next interval
+    #     # time.sleep(interval)
+    try:
+        # Start nvidia-smi in continuous mode with a 10 ms interval
+        process = subprocess.Popen(
+            ["nvidia-smi", "--query-gpu=power.draw", "--format=csv,noheader,nounits", "--loop-ms=10"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        while not stop_event.is_set():
+            line = process.stdout.readline().strip()
+            if line:
+                try:
+                    power_w = float(line)
+                    timestamp = time.time()
+                    data_queue.put((timestamp, power_w * 1000))  # Convert watts to milliwatts
+                except ValueError:
+                    print(f"Invalid output: {line}")
+
+        process.terminate()
+    except Exception as e:
+        print(f"Error during power monitoring: {e}")
 
 
 def conv2d_im2col_mpc(a1, W1, a2, W2, conv_module):
@@ -140,65 +162,65 @@ def measure_energy_resnet50_conv_linear_mpc(
     pynvml.nvmlInit()
     handle = pynvml.nvmlDeviceGetHandleByIndex(0)  # 0 => the selected GPU
 
-    #---------------------------------------------------------------------
-    # 2) Load ResNet-50, find conv & linear layers
-    #---------------------------------------------------------------------
-    model = models.resnet50(pretrained=False).to(device)
-    model.eval()
+    # #---------------------------------------------------------------------
+    # # 2) Load ResNet-50, find conv & linear layers
+    # #---------------------------------------------------------------------
+    # model = models.resnet50(pretrained=False).to(device)
+    # model.eval()
 
-    layers = []
-    for name, module in model.named_modules():
-        if isinstance(module, nn.Conv2d):
-            layers.append(("conv", module))
-        elif isinstance(module, nn.Linear):
-            layers.append(("linear", module))
+    # layers = []
+    # for name, module in model.named_modules():
+    #     if isinstance(module, nn.Conv2d):
+    #         layers.append(("conv", module))
+    #     elif isinstance(module, nn.Linear):
+    #         layers.append(("linear", module))
 
-    print("Discovered these convolution/linear layers in ResNet-50:")
-    for (lyr_type, lyr_module) in layers:
-        print(f" - {lyr_type}: {lyr_module}")
+    # print("Discovered these convolution/linear layers in ResNet-50:")
+    # for (lyr_type, lyr_module) in layers:
+    #     print(f" - {lyr_type}: {lyr_module}")
 
-    if not layers:
-        print("No conv or linear layers found (unexpected). Exiting.")
-        return
+    # if not layers:
+    #     print("No conv or linear layers found (unexpected). Exiting.")
+    #     return
 
-    #---------------------------------------------------------------------
-    # 3) Generate all data first
-    #---------------------------------------------------------------------
-    data_store = []  # To store generated data for all layers
+    # #---------------------------------------------------------------------
+    # # 3) Generate all data first
+    # #---------------------------------------------------------------------
+    # data_store = []  # To store generated data for all layers
 
-    with torch.no_grad():
-        for idx, (lyr_type, lyr_mod) in enumerate(layers):
-            if lyr_type == "linear":
-                # Generate input activations and weights for linear layer
-                in_features = lyr_mod.in_features
-                out_features = lyr_mod.out_features
+    # with torch.no_grad():
+    #     for idx, (lyr_type, lyr_mod) in enumerate(layers):
+    #         if lyr_type == "linear":
+    #             # Generate input activations and weights for linear layer
+    #             in_features = lyr_mod.in_features
+    #             out_features = lyr_mod.out_features
 
-                a1_gpu = torch.randn(batch_size, in_features, device=device)
-                W1_gpu = torch.randn(in_features, out_features, device=device)
+    #             a1_gpu = torch.randn(batch_size, in_features, device=device)
+    #             W1_gpu = torch.randn(in_features, out_features, device=device)
 
-                a2_cpu = torch.randn(batch_size, in_features)
-                W2_cpu = torch.randn(in_features, out_features)
+    #             a2_cpu = torch.randn(batch_size, in_features)
+    #             W2_cpu = torch.randn(in_features, out_features)
 
-                data_store.append((lyr_type, a1_gpu, W1_gpu, a2_cpu, W2_cpu))
+    #             data_store.append((lyr_type, a1_gpu, W1_gpu, a2_cpu, W2_cpu))
 
-            elif lyr_type == "conv":
-                # Generate input activations and weights for conv layer
-                conv_mod = lyr_mod
-                inC = conv_mod.in_channels
-                outC = conv_mod.out_channels
+    #         elif lyr_type == "conv":
+    #             # Generate input activations and weights for conv layer
+    #             conv_mod = lyr_mod
+    #             inC = conv_mod.in_channels
+    #             outC = conv_mod.out_channels
 
-                # Assuming fixed spatial size (e.g., 112x112)
-                H, W = 112, 112
+    #             # Assuming fixed spatial size (e.g., 112x112)
+    #             H, W = 112, 112
 
-                a1_gpu = torch.randn(batch_size, inC, H, W, device=device)
-                W1_gpu = torch.randn(outC, inC, *conv_mod.kernel_size, device=device)
+    #             a1_gpu = torch.randn(batch_size, inC, H, W, device=device)
+    #             W1_gpu = torch.randn(outC, inC, *conv_mod.kernel_size, device=device)
 
-                a2_cpu = torch.randn(batch_size, inC, H, W)
-                W2_cpu = torch.randn(outC, inC, *conv_mod.kernel_size)
+    #             a2_cpu = torch.randn(batch_size, inC, H, W)
+    #             W2_cpu = torch.randn(outC, inC, *conv_mod.kernel_size)
 
-                data_store.append((lyr_type, a1_gpu, W1_gpu, a2_cpu, W2_cpu, conv_mod))
+    #             data_store.append((lyr_type, a1_gpu, W1_gpu, a2_cpu, W2_cpu, conv_mod))
 
-    print("\nAll data generated and stored. Starting computations...\n")
+    # print("\nAll data generated and stored. Starting computations...\n")
 
     #---------------------------------------------------------------------
     # 4) Start background thread to sample power usage
@@ -218,8 +240,10 @@ def measure_energy_resnet50_conv_linear_mpc(
     #---------------------------------------------------------------------
     with torch.no_grad():
         for it in range(num_iterations):
+            
             print(f"\n---- Iteration {it+1}/{num_iterations} ----")
-
+            time.sleep(10)  # Sleep for 1s between iterations
+            continue
             for idx, data in enumerate(data_store):
                 if data[0] == "linear":
                     # Retrieve stored data
