@@ -8,8 +8,9 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 import torch.nn.functional as F
-
+import subprocess
 import matplotlib.pyplot as plt
+
 
 
 def power_monitor(handle, stop_event, data_queue, interval=0.05):
@@ -21,7 +22,45 @@ def power_monitor(handle, stop_event, data_queue, interval=0.05):
         power_mW = pynvml.nvmlDeviceGetPowerUsage(handle)  # instantaneous power (mW)
         timestamp = time.time()
         data_queue.put((timestamp, power_mW))
-        time.sleep(interval)
+        # time.sleep(interval)
+# def power_monitor(device_id, stop_event, data_queue, interval=0.05):
+#     """
+#     Continuously sample the instantaneous power draw (mW) using `nvidia-smi`
+#     and store (timestamp, power_mW) in a queue until stop_event is set.
+
+#     Parameters:
+#         device_id (int): The GPU ID to monitor.
+#         stop_event (threading.Event): Event to signal stopping the monitor.
+#         data_queue (queue.Queue): Queue to store (timestamp, power_mW) samples.
+#         interval (float): Sampling interval in seconds (default: 0.05s).
+#     """
+#     device_id = 0
+#     while not stop_event.is_set():
+#         try:
+#             # Run `nvidia-smi` command to get power draw for the specific GPU
+#             result = subprocess.run(
+#                 ["nvidia-smi", "-i", str(device_id), "--query-gpu=power.draw", "--format=csv,noheader,nounits"],
+#                 stdout=subprocess.PIPE,
+#                 stderr=subprocess.PIPE,
+#                 text=True
+#             )
+
+#             # Parse the output (power in watts)
+#             power_w = float(result.stdout.strip())
+#             power_mw = power_w #* 1000  # Convert watts to milliwatts
+
+#             # Get the current timestamp
+#             timestamp = time.time()
+
+#             # Add the sample to the data queue
+#             data_queue.put((timestamp, power_mw))
+
+#         except Exception as e:
+#             print(f"Error during power monitoring: {e}")
+#             break
+
+#         # Wait for the next interval
+#         # time.sleep(interval)
 
 
 def conv2d_im2col_mpc(a1, W1, a2, W2, conv_module):
@@ -66,7 +105,7 @@ def conv2d_im2col_mpc(a1, W1, a2, W2, conv_module):
     # Calculate output shape from convolution parameters
     outH = ((a1.size(2) + 2 * conv_module.padding[0] - conv_module.dilation[0] * (conv_module.kernel_size[0] - 1) - 1) // conv_module.stride[0]) + 1
     outW = ((a1.size(3) + 2 * conv_module.padding[1] - conv_module.dilation[1] * (conv_module.kernel_size[1] - 1) - 1) // conv_module.stride[1]) + 1
-    print(outH, outW, c_unf.shape)
+    # print(outH, outW, c_unf.shape)
     # # Fold back to original spatial shape
     # c = F.fold(
     #     c_unf.transpose(1, 2),
@@ -197,7 +236,7 @@ def measure_energy_resnet50_conv_linear_mpc(
                     c_cpu = c_gpu.to("cpu", non_blocking=True)
                     torch.cuda.synchronize()
 
-                    print(f"  [Linear #{idx+1}] done.")
+                    # print(f"  [Linear #{idx+1}] done.")
 
                 elif data[0] == "conv":
                     # Retrieve stored data
@@ -215,7 +254,7 @@ def measure_energy_resnet50_conv_linear_mpc(
                     torch.cuda.synchronize()
 
                     out_shape = c_gpu.shape
-                    print(f"  [Conv #{idx+1}] output={list(out_shape)} done.")
+                    # print(f"  [Conv #{idx+1}] output={list(out_shape)} done.")
 
     overall_end_time = time.time()
 
@@ -264,15 +303,16 @@ def measure_energy_resnet50_conv_linear_mpc(
     if len(time_points) > 1:
         t0 = time_points[0]
         shifted_times = [t - t0 for t in time_points]
-
+        print(len(shifted_times), len(power_points_mW))
+        # print(shifted_times)
         plt.figure(figsize=(8, 5))
-        plt.plot(shifted_times, power_points_mW, label="Power (mW)")
+        plt.plot(shifted_times, power_points_mW, label="Power (W)")
         plt.xlabel("Time (s) since start")
-        plt.ylabel("Power draw (mW)")
+        plt.ylabel("Power draw (W)")
         plt.title("GPU Power Usage During MPC-like Ops (Conv + Linear) in ResNet-50")
         plt.legend()
         plt.tight_layout()
-        plt.show()
+        plt.savefig("power_usage.png")
     else:
         print("Not enough samples to plot power usage.")
 
@@ -284,6 +324,6 @@ if __name__ == "__main__":
     measure_energy_resnet50_conv_linear_mpc(
         gpu_index=0,        # Use GPU 0
         batch_size=4,       # Example batch size
-        num_iterations=2,   # Perform a couple of iterations
+        num_iterations=1,   # Perform a couple of iterations
         sampling_interval=0.05
     )
