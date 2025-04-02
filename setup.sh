@@ -28,8 +28,11 @@ conda env create -f environment.yml
 conda activate rapl-test
 
 # Install Python packages
-pip install psutil pyRAPL pymongo pandas ThrottledSocket
+pip install psutil pyRAPL pymongo pandas ThrottledSocket numba
 conda install -c conda-forge cryptography -y
 conda install scapy -y
 
 echo "Setup complete!"
+
+# git config --global user.name "HuangPZ"
+# git config --global user.email "670413709@qq.com"
